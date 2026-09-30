@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Multi AI Chat",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "并排嵌入豆包 / DeepSeek / ChatGPT / 千问 / Claude / Gemini，用于同一问题的多路对比。",
   "permissions": [
     "declarativeNetRequestWithHostAccess",

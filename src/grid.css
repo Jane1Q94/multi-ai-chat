@@ -472,8 +472,38 @@ button:disabled {
   color: var(--ink);
 }
 
+/* 站点生成的附件，点胶囊下载 */
+.panel-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 16px 12px;
+}
+
+.panel-files:empty {
+  display: none;
+}
+
+.panel-file {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 4px 11px;
+  font-size: 12px;
+  color: var(--ink);
+  background: var(--head);
+  border-color: var(--line);
+  border-radius: 20px;
+}
+
+.panel-file::before {
+  content: '附件 ';
+  color: var(--ink-mute);
+}
+
 /* 原始页面模式下 iframe 会盖在卡片上，卡片内容要让位 */
-.panel.raw .answer {
+.panel.raw .answer,
+.panel.raw .panel-files {
   opacity: 0;
 }
 

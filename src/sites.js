@@ -5,6 +5,8 @@
 //         DeepSeek 是普通 textarea，填词逻辑会自动分流。
 // send:   发送按钮候选，按顺序取第一个命中且没禁用的。它是提交的主路径，回车只作兜底；
 //         填词是否被编辑器真正接受，也靠「这个按钮还禁不禁用」来判断，所以要填准。
+// files:  可选。站点生成的附件（文档、表格）所在的那一行/一块。这类附件通常只有按钮、
+//         没有可复制的地址，所以卡片里只放一个胶囊，点它把点击转发进 iframe。
 // answer: 回答正文容器，取最后一个匹配（也就是最新一轮）。必须排除用户消息和思考过程，
 //         否则抓回来的是自己刚发出去的问题。
 globalThis.MULTI_AI_SITES = [
@@ -36,7 +38,10 @@ globalThis.MULTI_AI_SITES = [
     // 面板窄的时候 ChatGPT 渲染的是移动版 composer，桌面版那个 id 不出现。
     input: '#prompt-textarea, #mobile-composer-prompt',
     send: ['[aria-label="发送消息"]', '[aria-label="Send message"]', '#composer-submit-button'],
-    answer: '[data-message-author-role="assistant"] .markdown'
+    answer: '[data-message-author-role="assistant"] .markdown',
+    // 生成的文件挂在整段对话轮次上，不在回答容器里，而且只有按钮没有链接地址 ——
+    // 卡片里放不了真链接，只能把点击转发回来让站点自己下载。见 inject.js 的 collectFiles。
+    files: '[class*="artifact-row"]'
   },
   {
     id: 'qianwen',

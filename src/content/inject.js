@@ -341,6 +341,57 @@ function trackUrl(site) {
 
 announceReady();
 
+// ---- 附件 ----
+// 站点生成的文件（ChatGPT 的 docx/xlsx 之类）只是个按钮，既没有可复制的地址，也不在回答
+// 容器里，而是挂在整段对话轮次上。所以这里只能把文件名报给父页，让卡片上有个胶囊。
+//
+// 「轮次」要比「消息」更外层：ChatGPT 的附件挂在整轮上，和助手消息是兄弟，
+// 所以这里不能退到 [data-message-author-role]，closest 会就近停在消息上，找不到附件。
+const TURN = 'article, [data-testid^="conversation-turn"]';
+
+function fileName(row) {
+  const named = [...row.querySelectorAll('[aria-label]')].find((el) => /\.[a-z0-9]{2,5}$/i.test(el.getAttribute('aria-label')));
+  return (named?.getAttribute('aria-label') ?? row.innerText.trim().split('\n')[0] ?? '').slice(0, 80);
+}
+
+function collectFiles(site, answerEl) {
+  if (!site.files) return [];
+  const turn = answerEl.closest(TURN) ?? document.body;
+  const names = [...turn.querySelectorAll(site.files)]
+    .filter((row) => row.offsetParent)
+    .map(fileName)
+    .filter(Boolean);
+  return [...new Set(names)].map((name) => ({ name }));
+}
+
+// 下面这段在顶层标签页里跑，不在 iframe 里。
+//
+// Chrome 会拦掉从跨源 iframe 发起的下载，除非那个 iframe 内部有真实的用户手势，合成点击
+// 不算。实测过：我们在 iframe 里 click() 站点的下载按钮，把 CDP 的下载行为强行改成
+// allowAndName 时文件能下来，恢复默认后连一个下载事件都不产生，静默失败。
+// 而同一个 click()，在顶层标签页里（哪怕是后台标签页、哪怕没有任何手势）浏览器照常放行。
+// 所以背景页会临时开一条这个对话的标签页，让我们在那儿把这一下点掉，文件名用来认是哪个附件。
+function clickFileByName(site, name) {
+  if (!site?.files) return false;
+  const row = [...document.querySelectorAll(site.files)].find((item) => fileName(item) === name);
+  if (!row) return false;
+  const button = [...row.querySelectorAll('button, a')].find((el) =>
+    /下载|download/i.test(el.getAttribute('aria-label') ?? el.innerText ?? '')
+  );
+  if (!button) return false;
+  button.click();
+  return true;
+}
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type !== 'CLICK_FILE') return;
+  currentSite().then(
+    (site) => sendResponse({ ok: clickFileByName(site, message.name) }),
+    () => sendResponse({ ok: false })
+  );
+  return true;
+});
+
 // ---- 回答回传 ----
 // 页面上显示的是 grid 自己渲染的卡片，所以这里要把回答正文持续推给父页。
 let answeredBefore = new Set();
@@ -372,10 +423,13 @@ async function relayAnswers() {
     const last = fresh[fresh.length - 1];
     const el = fresh.find((node) => node.contains(last)) ?? last;
     const html = globalThis.MultiAiSanitize(el.innerHTML);
-    if (streaming && html === lastHtml) return;
-    lastHtml = html;
+    const files = collectFiles(site, el);
+    // 附件是流式输出结束后才出现的，所以 html 没变也可能是附件刚挂上来。
+    const stamp = `${html}\u0000${files.map((item) => item.name).join('\u0000')}`;
+    if (streaming && stamp === lastHtml) return;
+    lastHtml = stamp;
     window.parent.postMessage(
-      { channel: CHANNEL, type: 'answer', siteId: site.id, html, text: el.innerText, streaming },
+      { channel: CHANNEL, type: 'answer', siteId: site.id, html, text: el.innerText, streaming, files },
       EXT_ORIGIN
     );
   };

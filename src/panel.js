@@ -98,6 +98,10 @@ export function createPanel({ site, grid, workspace, order, startUrl, onUrl, onS
 
   header.append(icon, name, status, tools);
 
+  // 站点生成的附件。只有按钮没有地址，所以这里放胶囊，点它走背景页那条绕路的下载。
+  const files = document.createElement('div');
+  files.className = 'panel-files';
+
   const article = document.createElement('article');
   article.className = 'answer';
   // 空卡片上用它做水印，见 .answer:empty::before
@@ -111,7 +115,7 @@ export function createPanel({ site, grid, workspace, order, startUrl, onUrl, onS
     'clipboard-read; clipboard-write; microphone; camera; autoplay; fullscreen; ' +
     'compute-pressure; accelerometer; gyroscope; magnetometer; unload';
 
-  root.append(header, article);
+  root.append(header, article, files);
   grid.append(root);
   workspace.append(frame);
 
@@ -163,6 +167,7 @@ export function createPanel({ site, grid, workspace, order, startUrl, onUrl, onS
     panel.lastAnswer = null;
     copy.disabled = true;
     article.replaceChildren();
+    files.replaceChildren();
     panel.setStatus('加载中…');
     frame.src = currentUrl;
   };
@@ -195,6 +200,7 @@ export function createPanel({ site, grid, workspace, order, startUrl, onUrl, onS
     panel.lastAnswer = null;
     copy.disabled = true;
     article.replaceChildren();
+    files.replaceChildren();
     panel.setStatus('发送中…');
     clearTimeout(timer);
     timer = setTimeout(() => {
@@ -235,10 +241,69 @@ export function createPanel({ site, grid, workspace, order, startUrl, onUrl, onS
     panel.setStatus(...(RESULT_STATUS[key] ?? [String(key), 'error']));
   };
 
+  // 站点生成的附件只有一个按钮，没有可以直接抓的地址，而 Chrome 不许跨源 iframe 里的合成点击
+  // 触发下载（实测记录在 content/inject.js 末尾）。所以临时开一条这条对话的后台标签页，让顶层
+  // 的 content script 在那儿把这一下点掉 —— 顶层页面的程序化下载浏览器照常放行。
+  //
+  // 这段刻意留在页面里，没有放进背景页：站点要十几二十秒才把历史对话渲染出来，这么长的等待
+  // 交给随时会被回收的 service worker 不靠谱（试过，同样的代码在那边 60 秒一次都没等到）。
+  // 标签页刚建出来时 content script 还没注入，sendMessage 会直接抛错，所以是反复问。
+  // 指定 frameId 0：站点页面里还有别的 iframe，它们装着同一个 content script，会抢先回「没找到」。
+  const clickInTab = async (tabId, name, timeout = 90000) => {
+    const deadline = Date.now() + timeout;
+    while (Date.now() < deadline) {
+      const reply = await chrome.tabs
+        .sendMessage(tabId, { type: 'CLICK_FILE', name }, { frameId: 0 })
+        .catch(() => null);
+      if (reply?.ok) return true;
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+    return false;
+  };
+
+  const download = async (pill, name) => {
+    pill.disabled = true;
+    pill.textContent = `${name}（正在取…）`;
+    const tab = await chrome.tabs.create({ url: currentUrl, active: false });
+    try {
+      const clicked = await clickInTab(tab.id, name);
+      // 下载一旦开始就不怕标签页关掉，但点下去到真正开始之间还有一小段，等一会儿更稳。
+      if (clicked) await new Promise((resolve) => setTimeout(resolve, 2500));
+      panel.setStatus(
+        ...(clicked ? [`已下载 ${name}`, 'ok'] : ['取不到这个附件，去原始页面里点它自己的下载按钮', 'warn'])
+      );
+    } finally {
+      await chrome.tabs.remove(tab.id).catch(() => {});
+      pill.disabled = false;
+      pill.textContent = name;
+    }
+  };
+
+  // 回答那边每隔几秒就会重报一次，附件没变就别重绘：replaceChildren 会把胶囊换成新节点，
+  // 正在下载的那个一换，进度和禁用状态就跟着丢了。
+  let renderedFiles = null;
+  const renderFiles = (list = []) => {
+    const key = list.map((item) => item.name).join('\u0000');
+    if (key === renderedFiles) return;
+    renderedFiles = key;
+    files.replaceChildren(
+      ...list.map((item) => {
+        const pill = document.createElement('button');
+        pill.type = 'button';
+        pill.className = 'panel-file';
+        pill.textContent = item.name;
+        pill.title = '下载到浏览器的下载目录';
+        pill.addEventListener('click', () => download(pill, item.name));
+        return pill;
+      })
+    );
+  };
+
   // html 已在 content script 里按白名单消毒过，这里直接渲染。
   panel.applyAnswer = (data) => {
     panel.lastAnswer = data;
     article.innerHTML = data.html;
+    renderFiles(data.files);
     copy.disabled = false;
     const words = data.text.trim().length;
     panel.setStatus(data.streaming ? `回答中…（${words} 字）` : `已完成（${words} 字）`, data.streaming ? null : 'ok');
