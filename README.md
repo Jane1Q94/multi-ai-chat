@@ -1,0 +1,83 @@
+# Multi AI Chat
+
+一个 Chrome 扩展：把同一个问题同时发给六家 AI 的**网页版**，答案并排成统一的卡片，用来交叉验证。
+
+不走各家的 API，而是直接复用它们的网页产品——因此联网搜索、深度思考、上传图片这些只有产品里才有的能力照样能用，也不用额外付 API 的钱，前提是浏览器里已经登录过这些站点。
+
+## 装载
+
+1. 打开 `chrome://extensions`，右上角开启「开发者模式」。
+2. 点「加载已解压的扩展程序」，选这个目录（或者下载 release 里的 zip，解压后选解压出来的目录）。
+3. 点工具栏上的扩展图标，面板就开在一个新标签页里。首次打开会向你申请嵌入这些站点的权限。
+
+前提：要用的站点在**当前这个浏览器配置**里已经登录。扩展不碰你的账号密码，用的就是浏览器里已有的登录态。
+
+## 用起来
+
+- **一次问所有人**：顶栏输入框，Enter 发送，Shift+Enter 换行，可以直接粘贴图片（会分发给支持读图的站点）。
+- **卡片只显示回答正文**，选中即可复制；「复制」按钮同时放入富文本和 Markdown 两种格式；「原始页面」切过去看真实的站点界面（登录、验证码、改模型都在那儿做）。
+- **只看一家**：双击卡片标题栏，其余卡片收起，这一家铺满整个网格；再双击或按 Esc 回到全部。
+- **会话**：顶栏「会话」按钮展开左侧列表。一条会话记着六家各自停在哪条对话上，切换会话就是把六个面板分别送回各自那条对话；支持改名（记住这条会话是干什么的）和删除。「新会话」让六家同时重开一轮。
+- **站点**：顶栏「站点」里可以开关或增删站点。自定义站点需要自己填输入框、回答容器、发送按钮的选择器。
+
+## 支持的站点
+
+| 站点 | 编辑器 |
+| --- | --- |
+| 豆包 | ProseMirror |
+| DeepSeek | textarea |
+| ChatGPT | Lexical |
+| 千问 | 自管状态的富文本 |
+| Claude | ProseMirror |
+| Gemini | Quill |
+
+适配器只维护在 `src/sites.js` 一处，站点改版时改那里。
+
+## 几个不能随便动的设计
+
+这些都是踩过坑换来的，注释里也写着，改之前先看一眼：
+
+- **iframe 必须留在视口里并保持渲染**。Chrome 会对移出视口的跨源 iframe 做渲染节流，站点的前端框架就不再提交更新，回答根本不会出现在 DOM 里，也就抓不到。所以「隐藏」是把 iframe 定位在卡片同一个矩形上、用 `z-index: -1` 压到不透明卡片背后，而不是 `display: none` 或挪出屏幕。「只看一家」时被收起的那几家，iframe 会停到留下那张卡片的矩形上继续跑。
+- **iframe 不搬 DOM**。搬动 iframe 会让它重新加载，正在进行的对话就丢了。面板排序用 CSS `order`。
+- **CSP / X-Frame-Options 只在本扩展的标签页里剥掉**。DNR 会话规则绑定了 `tabIds` 和 `sub_frame`，你日常浏览这些站点时，它们的安全策略不受任何影响。
+- **填词是一道策略阶梯**：`insertText` → 合成 `paste` → `beforeinput/input` → 原生 setter，逐个试直到编辑器真的接受。判断「接受了」靠的是发送按钮还禁不禁用，而不是看 DOM 里有没有字。
+- **提交按钮优先，回车只作兜底**。有的站点回车会清空编辑器但并不发送，那是个很稳定的假成功。
+- **回答抓取**按「提问前没见过的正文」筛候选，而不是按节点数量或节点身份——前者会被折叠的思考块骗过，后者会被虚拟滚动骗过。
+
+## 已知限制
+
+- **ChatGPT 在 iframe 里可能是匿名的**。它的登录 cookie 是 `SameSite=Lax`，浏览器按规范不会发给跨站 iframe。对策是只在本扩展这个标签页里，把被扣下的 cookie 用 `Cookie` 请求头补回去（见 `src/background.js` 的 `LAX_AUTH_HOSTS`），profile 里的 cookie 一个字都不改。但前提是浏览器里确实登录过 ChatGPT；否则 iframe 拿到的是匿名会话——能聊，但那条对话属于临时身份，之后用地址重新打开会被服务端拒掉、退回首页。再有别的站点出现同样症状，用 `--cookies` 勘查看它的会话 cookie 是不是 Lax，是就加进这个名单。
+- **站点改版会让选择器失效**，症状是卡片显示「没找到输入框」或者一直空着。改 `src/sites.js`，用下面的勘查脚本找新的选择器。
+- 只在 Chrome / Chromium（MV3）上验证过。
+
+## 开发与调试
+
+`tools/probe/run.mjs` 是配套的验证脚本，通过 CDP 连上一个开了调试端口的 Chrome，直接在真站点上跑端到端验证，不用手点。
+
+浏览器需要用调试端口启动：
+
+```sh
+/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome \
+  --remote-debugging-port=9222 --user-data-dir="$HOME/ChromeDebugProfile"
+```
+
+常用姿势：
+
+```sh
+node tools/probe/run.mjs                              # 看六家的加载状态和选择器命中情况
+node tools/probe/run.mjs --fresh --keep --ask="问题" --send   # 重载扩展，问一轮，核对六家的回答
+node tools/probe/run.mjs --editors                    # 列出候选编辑器和发送按钮，找选择器用
+node tools/probe/run.mjs --answers                    # 列出回答容器候选
+node tools/probe/run.mjs --net=chatgpt --reload=chatgpt  # 只重载一家，抓它的首屏请求和被拦的 cookie
+node tools/probe/run.mjs --on=claude --eval="location.href"  # 在指定 frame 里求值
+```
+
+默认会复用已经打开的面板标签页，不会新开对话污染你的聊天记录；改了扩展代码要加 `--fresh`。
+
+## 打包
+
+```sh
+sh tools/pack.sh
+```
+
+产出 `dist/multi-ai-chat-<版本号>.zip`，只含运行时需要的 `manifest.json` 和 `src/`。调试脚本、截图、制品本身都不入库。

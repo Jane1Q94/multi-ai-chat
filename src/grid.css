@@ -1,0 +1,789 @@
+/* 设计取向：暖纸底 + 浮起的白卡片 + 近黑的唯一强调色。
+   这是个要同时盯六家回答的对比工具，所以颜色全部让位给正文，
+   控件平时压到最轻，只在鼠标停在某张卡片上时才浮出来。 */
+
+:root {
+  --paper: #f2f0eb;
+  --card: #fff;
+  /* 卡片标题栏：比纸色再深一点，才同时和白色正文、和页面底色都分得开 */
+  --head: #ebe7df;
+  --ink: #23211e;
+  --ink-soft: #6e6862;
+  --ink-mute: #98918a;
+  --ink-faint: #d5cfc6;
+  --line: #e4e0d8;
+  --line-soft: #efece6;
+  --ok: #3d7a5b;
+  --warn: #8f6a1e;
+  --error: #ad4432;
+  --link: #2f5d8a;
+  --radius: 12px;
+  --radius-sm: 7px;
+  /* 拉丁字形用 Avenir Next，中文落到苹方；标题用 Iowan 这类衬线，压住工具页的匠气 */
+  --sans: 'Avenir Next', 'Helvetica Neue', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --serif: 'Iowan Old Style', Palatino, 'Songti SC', serif;
+  --mono: 'SF Mono', ui-monospace, Menlo, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  font: 13px/1.6 var(--sans);
+  color: var(--ink);
+  background: var(--paper);
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font: inherit;
+  padding: 5px 11px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+button:hover:not(:disabled) {
+  background: #0000000a;
+  color: var(--ink);
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* 顶栏 */
+
+/* 顶栏是工具条，不是内容：用白底 + 一条实线和纸色的内容区分开，像贴在页面上方的一层。 */
+.topbar {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 9px 16px;
+  background: var(--card);
+  border-bottom: 1px solid var(--line);
+  box-shadow: 0 1px 3px #00000008;
+}
+
+.topbar h1 {
+  margin: 5px 10px 0 0;
+  font: 500 15px/1.4 var(--serif);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.composer {
+  flex: 1;
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+/* 顶栏本身是白的，输入框得反过来用纸色垫底才看得出是个可填的槽 */
+.composer-box {
+  flex: 1;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--paper);
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+
+.composer-box:focus-within {
+  border-color: var(--ink-mute);
+  background: var(--card);
+  box-shadow: 0 1px 6px #00000012;
+}
+
+.composer textarea {
+  display: block;
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  resize: none;
+  max-height: 160px;
+  padding: 7px 12px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+}
+
+.composer textarea::placeholder {
+  color: var(--ink-mute);
+}
+
+.composer textarea:focus {
+  outline: none;
+}
+
+.attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0 10px 7px;
+  list-style: none;
+}
+
+.attachments:empty {
+  display: none;
+}
+
+.attachments li {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 4px 1px 9px;
+  background: var(--paper);
+  border-radius: 20px;
+  color: var(--ink-soft);
+}
+
+.attachments button {
+  padding: 0 4px;
+  border-radius: 20px;
+}
+
+.composer button[type='submit'] {
+  padding: 6px 16px;
+  background: var(--ink);
+  color: #fff;
+}
+
+.composer button[type='submit']:hover:not(:disabled) {
+  background: #3b3732;
+}
+
+/* 平时是隐藏的，只在嵌入权限申请失败这类情况下才露出来说明原因 */
+.hint {
+  margin: 10px 0 -2px;
+  padding: 0 16px;
+  color: var(--ink-mute);
+}
+
+.hint[hidden] {
+  display: none;
+}
+
+/* 会话侧边栏 */
+
+/* 提示行平时不占位，顶栏和卡片之间的这口气由 stage 自己留 */
+.stage {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  padding-top: 12px;
+}
+
+.sidebar {
+  flex: 0 0 176px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0 4px 16px 16px;
+}
+
+/* display: flex 会盖掉 [hidden] 自带的 display: none，得显式写回来 */
+.sidebar[hidden] {
+  display: none;
+}
+
+/* 顶栏那颗按钮兼当「现在在哪条会话」的指示牌，收起时也看得见。
+   它得明显像个可点的控件，所以常态就带边框；名字再长也只截断名字，不能把箭头也吃掉。 */
+#toggle-sidebar {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  border-color: var(--line);
+  background: var(--card);
+}
+
+#toggle-sidebar #active-session {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#toggle-sidebar .caret {
+  flex: none;
+  font-size: 9px;
+  color: var(--ink-mute);
+  transition: transform 0.15s;
+}
+
+#toggle-sidebar[aria-expanded='true'] {
+  color: var(--ink);
+}
+
+#toggle-sidebar[aria-expanded='true'] .caret {
+  transform: rotate(90deg);
+}
+
+.session-list {
+  flex: 1;
+  margin: 0;
+  padding: 0 0 2px;
+  overflow-y: auto;
+  list-style: none;
+  scrollbar-width: thin;
+}
+
+.session {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  border-radius: var(--radius-sm);
+  transition: background 0.15s;
+}
+
+.session:hover {
+  background: #00000008;
+}
+
+.session[data-active] {
+  background: var(--card);
+  box-shadow: inset 2px 0 0 var(--ink);
+}
+
+.session-name {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 4px 6px 9px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  color: var(--ink);
+}
+
+.session-name[data-unnamed] {
+  color: var(--ink-mute);
+}
+
+.session[data-active] .session-name {
+  font-weight: 600;
+}
+
+/* 每条会话两个动作，平时不露，指到这条上才出现 */
+.session-act {
+  padding: 4px 6px;
+  font-size: 12px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.session:hover .session-act,
+.session:focus-within .session-act {
+  opacity: 1;
+}
+
+.session-input {
+  width: 100%;
+  font: inherit;
+  color: var(--ink);
+  padding: 5px 8px;
+  border: 1px solid var(--ink-mute);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+}
+
+.session-input:focus {
+  outline: none;
+}
+
+/* 面板 */
+
+.grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(var(--columns, 2), 1fr);
+  grid-auto-rows: minmax(0, 1fr);
+  gap: 12px;
+  padding: 0 16px 16px;
+  min-height: 0;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 1px 2px #0000000a;
+  animation: rise 0.32s ease-out backwards;
+  animation-delay: calc(var(--order, 0) * 45ms);
+}
+
+/* display: flex 会盖掉 [hidden] 自带的 display: none */
+.panel[hidden] {
+  display: none;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel {
+    animation: none;
+  }
+}
+
+/* 标题栏压成一条浅色的「页眉」，和白色正文分开，六张卡片扫过去时一眼认得出分段。
+   圆角要减掉卡片那 1px 边框，否则会在角上露出一小块直角。 */
+.panel-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  background: var(--head);
+  border-bottom: 1px solid var(--line);
+  border-radius: calc(var(--radius) - 1px) calc(var(--radius) - 1px) 0 0;
+}
+
+.panel-icon {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  /* 标题栏的 gap 是给「名字—状态」这些文字块定的，图标和名字之间要更紧一点 */
+  margin-right: -2px;
+  border-radius: 3px;
+}
+
+.panel-name {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+}
+
+.panel-status {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--ink-mute);
+}
+
+.panel-status[data-state='ok'] {
+  color: var(--ok);
+}
+
+.panel-status[data-state='warn'] {
+  color: var(--warn);
+}
+
+.panel-status[data-state='error'] {
+  color: var(--error);
+}
+
+/* 六张卡片各挂一排按钮太吵，平时收起来，鼠标停在这张卡上（或用键盘走到按钮上）才露出 */
+.panel-tools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+/* 菜单展开后鼠标可能已经移开，这时整条工具栏要继续留着，否则菜单自己也跟着隐形 */
+.panel:hover .panel-tools,
+.panel:focus-within .panel-tools,
+.panel:has(.panel-menu[open]) .panel-tools {
+  opacity: 1;
+}
+
+.panel-tools button {
+  padding: 3px 8px;
+  font-size: 12px;
+}
+
+/* 次要动作收进原生 details 菜单，不用自己写浮层 */
+.panel-menu {
+  position: relative;
+}
+
+.panel-menu summary {
+  padding: 3px 7px;
+  border-radius: var(--radius-sm);
+  color: var(--ink-soft);
+  font-size: 12px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.panel-menu summary::-webkit-details-marker {
+  display: none;
+}
+
+.panel-menu summary:hover,
+.panel-menu[open] summary {
+  background: #0000000a;
+  color: var(--ink);
+}
+
+.panel-menu > div {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  min-width: 108px;
+  padding: 4px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 6px 18px #00000014;
+}
+
+.panel-menu a,
+.panel-menu button {
+  padding: 5px 9px;
+  font-size: 12px;
+  color: var(--ink-soft);
+  text-align: left;
+  text-decoration: none;
+  border-radius: 5px;
+}
+
+.panel-menu a:hover {
+  background: #0000000a;
+  color: var(--ink);
+}
+
+/* 原始页面模式下 iframe 会盖在卡片上，卡片内容要让位 */
+.panel.raw .answer {
+  opacity: 0;
+}
+
+/* 站点 iframe 定位在各自卡片的矩形上，默认用 z-index: -1 压到不透明卡片背后。
+   不能用 display:none / visibility:hidden，也不能挪出视口 —— 那样 Chrome 会
+   节流跨源 iframe 的渲染，站点根本不会把回答画进 DOM。 */
+.workspace iframe {
+  position: fixed;
+  border: 0;
+  border-radius: 0 0 var(--radius) var(--radius);
+  background: var(--card);
+  opacity: 0;
+  pointer-events: none;
+  z-index: -1;
+}
+
+.workspace iframe.visible {
+  opacity: 1;
+  pointer-events: auto;
+  z-index: 5;
+}
+
+/* 回答正文 */
+
+.answer {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 14px 16px 16px;
+  font-size: 13.5px;
+  line-height: 1.78;
+  user-select: text;
+  scrollbar-width: thin;
+}
+
+/* 还没有回答时留一个淡淡的站点名，比纯白的空卡片像是设计过的 */
+.answer:empty {
+  display: grid;
+  place-items: center;
+}
+
+.answer:empty::before {
+  content: attr(data-site);
+  font: 400 26px/1 var(--serif);
+  color: var(--ink-faint);
+  letter-spacing: 0.04em;
+}
+
+.answer > :first-child {
+  margin-top: 0;
+}
+
+.answer > :last-child {
+  margin-bottom: 0;
+}
+
+.answer p,
+.answer ul,
+.answer ol,
+.answer blockquote,
+.answer pre,
+.answer table {
+  margin: 0 0 0.9em;
+}
+
+.answer h1,
+.answer h2,
+.answer h3,
+.answer h4,
+.answer h5,
+.answer h6 {
+  margin: 1.3em 0 0.5em;
+  font-size: 1.05em;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.answer h1 {
+  font-size: 1.22em;
+}
+
+.answer h2 {
+  font-size: 1.12em;
+}
+
+.answer ul,
+.answer ol {
+  padding-left: 1.35em;
+}
+
+.answer li {
+  margin: 0.22em 0;
+}
+
+.answer strong {
+  font-weight: 600;
+}
+
+.answer code {
+  padding: 0.14em 0.36em;
+  font-family: var(--mono);
+  font-size: 0.88em;
+  background: var(--paper);
+  border-radius: 4px;
+}
+
+.answer pre {
+  padding: 11px 13px;
+  overflow-x: auto;
+  font-size: 0.92em;
+  background: #faf9f6;
+  border: 1px solid var(--line-soft);
+  border-radius: 9px;
+}
+
+.answer pre code {
+  padding: 0;
+  background: transparent;
+}
+
+.answer blockquote {
+  padding-left: 0.95em;
+  border-left: 2px solid var(--ink-faint);
+  color: var(--ink-soft);
+}
+
+.answer table {
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+}
+
+.answer th,
+.answer td {
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  text-align: left;
+}
+
+.answer th {
+  background: #faf9f6;
+}
+
+.answer img {
+  max-width: 100%;
+  max-height: 320px;
+  border-radius: 6px;
+}
+
+/* 联网回答里的来源角标是套在链接里的 favicon（alt 为空、尺寸 128px）。
+   站点自己的 CSS 会把它缩到一行高，而那套 CSS 不会跟着 HTML 过来，
+   不处理的话整张卡片会被一堆大图标撑坏。 */
+.answer a img {
+  height: 1.15em;
+  width: auto;
+  max-height: none;
+  vertical-align: -0.2em;
+  border-radius: 2px;
+}
+
+.answer a {
+  color: var(--link);
+  text-decoration-color: #2f5d8a55;
+  text-underline-offset: 2px;
+}
+
+.answer hr {
+  border: 0;
+  border-top: 1px solid var(--line-soft);
+}
+
+/* 消毒时保留了 hljs-* 类名，但站点的样式表不会跟过来，配色在这里自己给 */
+
+.answer .hljs-keyword,
+.answer .hljs-built_in,
+.answer .hljs-selector-tag {
+  color: #a23b2c;
+}
+
+.answer .hljs-string,
+.answer .hljs-attr,
+.answer .hljs-regexp {
+  color: #1d4a6b;
+}
+
+.answer .hljs-comment,
+.answer .hljs-quote {
+  color: var(--ink-mute);
+  font-style: italic;
+}
+
+.answer .hljs-number,
+.answer .hljs-literal,
+.answer .hljs-symbol {
+  color: #2f5d8a;
+}
+
+.answer .hljs-title,
+.answer .hljs-section,
+.answer .hljs-name {
+  color: #6d4b96;
+}
+
+.answer .hljs-variable,
+.answer .hljs-params,
+.answer .hljs-type {
+  color: #8a5a20;
+}
+
+/* 设置弹窗 */
+
+dialog {
+  width: min(520px, 90vw);
+  padding: 20px 22px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 16px 48px #00000024;
+  font: inherit;
+  color: inherit;
+  background: var(--card);
+}
+
+dialog::backdrop {
+  background: #23211e40;
+  backdrop-filter: blur(1.5px);
+}
+
+dialog h2 {
+  margin: 0 0 10px;
+  font: 500 14px/1.4 var(--serif);
+  letter-spacing: 0.02em;
+}
+
+dialog h2 + h2,
+.add-site {
+  margin-top: 18px;
+}
+
+.site-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.site-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.site-list label {
+  flex: 1;
+}
+
+.site-host {
+  color: var(--ink-mute);
+}
+
+.add-site {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.add-site label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  color: var(--ink-soft);
+}
+
+.add-site input {
+  font: inherit;
+  color: var(--ink);
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+
+.add-site input:focus {
+  outline: none;
+  border-color: var(--ink-mute);
+}
+
+.form-hint {
+  margin: 0;
+  color: var(--ink-mute);
+}
+
+.form-error {
+  margin: 0;
+  color: var(--error);
+}
+
+.form-error:empty {
+  display: none;
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.form-actions button[type='submit'] {
+  background: var(--ink);
+  color: #fff;
+}
+
+.form-actions button[type='submit']:hover {
+  background: #3b3732;
+}

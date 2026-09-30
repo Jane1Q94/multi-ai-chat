@@ -1,0 +1,53 @@
+{
+  "manifest_version": 3,
+  "name": "Multi AI Chat",
+  "version": "1.0.0",
+  "description": "并排嵌入豆包 / DeepSeek / ChatGPT / 千问 / Claude / Gemini，用于同一问题的多路对比。",
+  "permissions": [
+    "declarativeNetRequestWithHostAccess",
+    "tabs",
+    "storage",
+    "scripting",
+    "clipboardWrite",
+    "favicon",
+    "cookies"
+  ],
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://*/*"
+  ],
+  "host_permissions": [
+    "https://www.doubao.com/*",
+    "https://chat.deepseek.com/*",
+    "https://chatgpt.com/*",
+    "https://chat.openai.com/*",
+    "https://qianwen.com/*",
+    "https://*.qianwen.com/*",
+    "https://claude.ai/*",
+    "https://gemini.google.com/*"
+  ],
+  "background": {
+    "service_worker": "src/background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.doubao.com/*",
+        "https://chat.deepseek.com/*",
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*",
+        "https://qianwen.com/*",
+        "https://*.qianwen.com/*",
+        "https://claude.ai/*",
+        "https://gemini.google.com/*"
+      ],
+      "all_frames": true,
+      "js": ["src/sites.js", "src/store.js", "src/sanitize.js", "src/content/inject.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "打开 Multi AI Chat"
+  }
+}
