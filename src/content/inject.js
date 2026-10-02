@@ -238,6 +238,16 @@ function attachFiles(site, editor, files) {
   editor.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
 }
 
+// 贴完附件要等上传真的结束。判据是发送键重新可用：千问在上传期间一直禁用它，
+// 这期间提交会点不动。再加一个固定下限，因为有的站点上传时并不禁用按钮，
+// 没传完就提交，发出去的只有文字。
+async function sendFiles(site, editor, files) {
+  attachFiles(site, editor, files);
+  await sleep(2500);
+  const deadline = Date.now() + 30000;
+  while (Date.now() < deadline && sendStillDisabled(site)) await sleep(300);
+}
+
 // 先点发送键，回车只作兜底：有的站点回车会把编辑器清空却不发送，而「清空」正是我们判定
 // 已发送的依据，于是回车优先会稳定地误报成功。点按钮是各家都有的正规入口。
 // 回车前要重新取一次输入框：点按钮可能让站点把 composer 整个重挂（豆包首页就是），
@@ -259,21 +269,21 @@ async function handleAsk(site, text, shouldSend, files) {
   // 这里比的是文字而不是节点数量或节点身份，两者都试过、都会错：
   // 数量——豆包答完一轮后节点总数可能不变（旧的思考块会收起来），永远等不到「变多」；
   // 身份——豆包的消息列表是虚拟滚动，旧消息重新挂载后就是新节点，上一轮的回答会被当成本轮的。
-  answeredBefore = new Set(
-    [...document.querySelectorAll(site.answer ?? ':not(*)')].map((node) => node.innerText.trim())
-  );
+  answeredBefore = tally(site);
   // 空 composer 的原样文字，发送后会回到这个样子，判定「已清空」时要认它。
   const idleText = readText(el).trim();
-
-  if (files?.length) {
-    attachFiles(site, el, files);
-    // 给站点留出上传时间，附件没传完就回车会只发出文字。
-    await sleep(2500);
-  }
 
   const { strategy, attempts } = await fill(site, el, text);
   const debug = { tag: el.tagName, editable: el.isContentEditable, attempts };
   if (!strategy) return { ok: false, reason: 'fill-failed', debug };
+
+  // 附件一定要等文字写完再贴，不能反过来：
+  // 填词的第一步是全选再插入，紧跟在贴图后面做，会把刚插进去的图片一起选中替换掉
+  // （Gemini 实测就是这么丢图的，站点只收到文字）；
+  // 而上传期间千问会禁用发送键，fill 又拿「发送键还禁着」当作「编辑器没认这段文字」，
+  // 于是四种写法全判失败，明明字已经写进去了也会报填词失败。
+  if (files?.length) await sendFiles(site, findInput(site.input) ?? el, files);
+
   if (!shouldSend) return { ok: true, sent: false, strategy };
 
   // 豆包首页会在填词后重挂 composer，把内容和焦点一起弄丢，所以提交前再确认一次。
@@ -289,6 +299,8 @@ async function handleAsk(site, text, shouldSend, files) {
   // 到这儿多半是编辑器没真正接受我们写的文字：它自己维护状态，DOM 里有字也当空的。
   // 合成 paste 最接近真实输入，多数这类编辑器只认它，所以重写一遍再试一次提交。
   // 放在失败之后而不是一开始，是为了不给本来就正常的站点每轮都多加一次等待。
+  // 带附件时不走这条路：它也要先全选，会把贴在编辑器里的附件一起选掉。
+  if (files?.length) return { ok: true, sent: false, strategy, reason: 'not-submitted', debug };
   const retryEl = findInput(site.input) ?? target;
   FILL_STRATEGIES.find((item) => item.name === 'paste').run(retryEl, text);
   await sleep(300);
@@ -394,7 +406,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 // ---- 回答回传 ----
 // 页面上显示的是 grid 自己渲染的卡片，所以这里要把回答正文持续推给父页。
-let answeredBefore = new Set();
+// 提问前已有的回答，记的是「每段正文出现了几次」而不是一个文本集合：
+// 同一条对话里问两遍同样的问题，新回答的字面可能和旧回答一模一样（实测「7395」就是这样），
+// 按集合去重会把新回答当成旧的滤掉，卡片一直空着。记次数就能认出「这段话比刚才多了一条」。
+function tally(site) {
+  const counts = new Map();
+  for (const node of document.querySelectorAll(site.answer ?? ':not(*)')) {
+    const text = node.innerText.trim();
+    counts.set(text, (counts.get(text) ?? 0) + 1);
+  }
+  return counts;
+}
+
+let answeredBefore = new Map();
 
 function debounce(fn, wait) {
   let timer = null;
@@ -412,11 +436,37 @@ async function relayAnswers() {
 
   let lastHtml = null;
   let idle = null;
+  let published = false;
+  let reportedEmpty = false;
 
   const publish = (streaming) => {
-    const fresh = [...document.querySelectorAll(site.answer)]
-      .filter((node) => node.innerText.trim() && !answeredBefore.has(node.innerText.trim()));
-    if (!fresh.length) return;
+    // 按文档顺序把「提问前就有的那几条」先扣掉，剩下的才是本轮的新回答。
+    const budget = new Map(answeredBefore);
+    const fresh = [...document.querySelectorAll(site.answer)].filter((node) => {
+      const text = node.innerText.trim();
+      if (!text) return false;
+      const seen = budget.get(text) ?? 0;
+      if (seen > 0) {
+        budget.set(text, seen - 1);
+        return false;
+      }
+      return true;
+    });
+    if (!fresh.length) {
+      // 一上来就没有回答（「新会话」把这家送回了首页），要明确说一声「这里是空的」：
+      // 卡片上可能还留着上一条对话的回答 —— 父页清空卡片后旧文档还能再报一次，
+      // 它死在导航提交那一刻，而「这条对话没有回答」只有新文档知道。
+      // 只在本文档还没报过回答时说一次，之后不再说：站点重绘时（豆包的消息列表是虚拟滚动）
+      // 回答会短暂地从 DOM 里消失，那种时候清空卡片是错的。
+      if (published || reportedEmpty) return;
+      reportedEmpty = true;
+      window.parent.postMessage(
+        { channel: CHANNEL, type: 'answer', siteId: site.id, html: '', text: '', streaming: false, files: [] },
+        EXT_ORIGIN
+      );
+      return;
+    }
+    published = true;
     // 先按文档顺序取最后一个——最新那条回答总在最下面；再往外扩到包住它的最大容器，
     // 因为有的站点（千问）的选择器会同时命中同一条回答的多层嵌套节点，只取最后一个
     // 会抓到最内层的碎片。querySelectorAll 是文档顺序，祖先一定排在后代前面。

@@ -166,8 +166,9 @@ export function createPanel({ site, grid, workspace, order, startUrl, onUrl, onS
     clearTimeout(timer);
     panel.lastAnswer = null;
     copy.disabled = true;
+    renderedHtml = '';
     article.replaceChildren();
-    files.replaceChildren();
+    renderFiles([]);
     panel.setStatus('加载中…');
     frame.src = currentUrl;
   };
@@ -199,8 +200,9 @@ export function createPanel({ site, grid, workspace, order, startUrl, onUrl, onS
     panel.pendingId = id;
     panel.lastAnswer = null;
     copy.disabled = true;
+    renderedHtml = '';
     article.replaceChildren();
-    files.replaceChildren();
+    renderFiles([]);
     panel.setStatus('发送中…');
     clearTimeout(timer);
     timer = setTimeout(() => {
@@ -282,6 +284,7 @@ export function createPanel({ site, grid, workspace, order, startUrl, onUrl, onS
   // 回答那边每隔几秒就会重报一次，附件没变就别重绘：replaceChildren 会把胶囊换成新节点，
   // 正在下载的那个一换，进度和禁用状态就跟着丢了。
   let renderedFiles = null;
+  let renderedHtml = '';
   const renderFiles = (list = []) => {
     const key = list.map((item) => item.name).join('\u0000');
     if (key === renderedFiles) return;
@@ -301,8 +304,23 @@ export function createPanel({ site, grid, workspace, order, startUrl, onUrl, onS
 
   // html 已在 content script 里按白名单消毒过，这里直接渲染。
   panel.applyAnswer = (data) => {
+    // 空回答是站点那边「这条对话里没有回答」的明确上报，用来清掉上一条对话留在卡片上的内容：
+    // 重载时旧文档还能抢在导航提交前再报一次，光靠 load() 清空挡不住。
+    if (!data.html) {
+      panel.lastAnswer = null;
+      renderedHtml = '';
+      article.replaceChildren();
+      renderFiles([]);
+      copy.disabled = true;
+      return;
+    }
     panel.lastAnswer = data;
-    article.innerHTML = data.html;
+    // html 没变就别重写：回答结束后站点那边每隔几秒还会重报一次同样的内容，
+    // 每次都重建 DOM 会把用户正在卡片里划的选区冲掉，复制就无从下手了。
+    if (data.html !== renderedHtml) {
+      renderedHtml = data.html;
+      article.innerHTML = data.html;
+    }
     renderFiles(data.files);
     copy.disabled = false;
     const words = data.text.trim().length;
