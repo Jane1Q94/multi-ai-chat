@@ -36,12 +36,34 @@ function isUiNoise(el) {
   return el.children.length === 0 && UI_NOISE.test(el.textContent.trim());
 }
 
+// 地址要变成绝对的：正文里有相对链接（站内跳转、引用），原样搬进扩展页面就指到
+// chrome-extension:// 下面去了。这里是 content script，location 就是站点自己，解析得对。
+function absolute(value) {
+  try {
+    return new URL(value.trim(), location.href).href;
+  } catch {
+    return null;
+  }
+}
+
 function copyAttributes(source, target) {
   for (const name of ATTRS[target.localName] ?? []) {
     const value = source.getAttribute(name);
     if (value === null) continue;
-    if ((name === 'href' || name === 'src') && !SAFE_URL.test(value.trim())) continue;
+    if (name === 'href' || name === 'src') {
+      const url = absolute(value);
+      if (!url || !SAFE_URL.test(url)) continue;
+      target.setAttribute(name, url);
+      continue;
+    }
     target.setAttribute(name, value);
+  }
+
+  // 卡片里的链接一律新标签页打开。grid 页面里装着六个 iframe 和整场对话，
+  // 让它被一次点击导航走，等于把所有人的回答一起关掉。
+  if (target.localName === 'a' && target.hasAttribute('href')) {
+    target.setAttribute('target', '_blank');
+    target.setAttribute('rel', 'noopener noreferrer');
   }
   const classes = [...source.classList].filter((name) => KEEP_CLASS.test(name));
   if (classes.length) target.setAttribute('class', classes.join(' '));

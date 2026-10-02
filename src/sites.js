@@ -38,7 +38,10 @@ globalThis.MULTI_AI_SITES = [
     // 面板窄的时候 ChatGPT 渲染的是移动版 composer，桌面版那个 id 不出现。
     input: '#prompt-textarea, #mobile-composer-prompt',
     send: ['[aria-label="发送消息"]', '[aria-label="Send message"]', '#composer-submit-button'],
-    answer: '[data-message-author-role="assistant"] .markdown',
+    // 直接用这条消息本身，不往里挑容器：ChatGPT 换了渲染器之后正文外面是
+    // `.puik-root not-prose not-markdown` 加一串 CSS module 哈希类名（会跟着每次构建变），
+    // 原来的 `.markdown` 已经不存在了。操作按钮在这条消息外面，所以整条拿过来就是干净正文。
+    answer: '[data-message-author-role="assistant"]',
     // 生成的文件挂在整段对话轮次上，不在回答容器里，而且只有按钮没有链接地址 ——
     // 卡片里放不了真链接，只能把点击转发回来让站点自己下载。见 inject.js 的 collectFiles。
     files: '[class*="artifact-row"]'
