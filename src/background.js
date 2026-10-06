@@ -125,8 +125,27 @@ async function syncCustomSites() {
   for (const site of custom) await registerSite(site).catch(() => {});
 }
 
-chrome.runtime.onInstalled.addListener(syncCustomSites);
-chrome.runtime.onStartup.addListener(syncCustomSites);
+// 网格窗口要留在屏幕上，Chrome 才会继续渲染里面的跨站页面。不抢焦点，也不最小化。
+async function ensureGridWindow() {
+  const [existing] = await chrome.tabs.query({ url: `${GRID_URL}*` });
+  if (existing) return;
+  await chrome.windows.create({
+    url: GRID_URL,
+    focused: false,
+    state: 'normal',
+    width: 1200,
+    height: 800,
+    type: 'normal'
+  });
+}
+
+function boot() {
+  syncCustomSites();
+  ensureGridWindow();
+}
+
+chrome.runtime.onInstalled.addListener(boot);
+chrome.runtime.onStartup.addListener(boot);
 
 const HANDLERS = {
   // grid 页面在挂载 iframe 之前会先来要一次授权，避免规则还没生效就发出子框架请求。

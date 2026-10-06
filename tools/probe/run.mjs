@@ -7,15 +7,19 @@
 //   node tools/probe/run.mjs                  只验证四个面板能否嵌入
 //   node tools/probe/run.mjs --ask=你的问题     额外验证填词链路（只填不发送）
 //   node tools/probe/run.mjs --ask=xx --send   连发送一起验证（会真的提问）
+//   node tools/probe/run.mjs --mcp --ask=xx --send --keep
+//       经本机 MCP 服务提问，并确认第二问仍停在同一组会话
+//   node tools/probe/run.mjs --mcp --ask=xx --send --minimize
+//       只最小化网格窗口后再提问，用来观察冻结时的 timeout 说明
 //   node tools/probe/run.mjs --keep            跑完保留 grid 标签页
 //   node tools/probe/run.mjs --fresh           重载扩展并新开标签页（改了 manifest 才需要）
 //   node tools/probe/run.mjs --reload=grok     只重载一个站点的 iframe，让它吃到新的选择器
 //   node tools/probe/run.mjs --net=grok        同上，并打印这个站点失败/未返回的请求
 //
 // 绝不碰这个 Chrome 的 profile，也绝不 kill 它。
-import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
+import { extensionId, start as startMcp } from '../mcp/server.mjs';
 
 const REPO = path.resolve(import.meta.dirname, '../..');
 const PORT = Number(process.argv.find((a) => a.startsWith('--port='))?.split('=')[1] ?? 9222);
@@ -35,12 +39,8 @@ const ANSWER_DUMP = process.argv.includes('--answers');
 const COPY = process.argv.includes('--copy');
 const IMAGE = process.argv.includes('--image');
 const HTML_OF = process.argv.find((a) => a.startsWith('--html='))?.slice('--html='.length);
-
-// Chrome 给未打包扩展分配的 ID = SHA256(绝对路径) 前 16 字节，每个 nibble 映射到 a-p。
-function extensionId(dir) {
-  const hash = createHash('sha256').update(dir).digest('hex').slice(0, 32);
-  return [...hash].map((c) => 'abcdefghijklmnop'[parseInt(c, 16)]).join('');
-}
+const MCP = process.argv.includes('--mcp');
+const MINIMIZE = process.argv.includes('--minimize');
 
 class Cdp {
   constructor(ws) {
@@ -292,6 +292,11 @@ async function gridTab(browser, extId) {
     await browser.send('Target.closeTarget', { targetId: stale.targetId }).catch(() => {});
   }
   await refreshExtension(browser, extId);
+  // 重载会触发 onInstalled，扩展可能又开出一个网格窗口。测的是这一个标签页，把刚冒出来的关掉。
+  const after = await browser.send('Target.getTargets');
+  for (const stale of after.targetInfos.filter((t) => t.type === 'page' && t.url.startsWith(gridUrl))) {
+    await browser.send('Target.closeTarget', { targetId: stale.targetId }).catch(() => {});
+  }
   const { targetId } = await browser.send('Target.createTarget', { url: gridUrl });
   const { sessionId } = await browser.send('Target.attachToTarget', { targetId, flatten: true });
   return { sessionId, targetId, reused: false };
@@ -316,10 +321,99 @@ function acquireLock() {
   return () => rmSync(lock, { force: true });
 }
 
+async function sessionUrls(browser, sessionId) {
+  return JSON.parse(
+    await browser.eval(
+      `(() => {
+        const sessions = __multiAiSessions();
+        const active = sessions.list.find((item) => item.id === sessions.activeId);
+        return JSON.stringify(active?.urls ?? {});
+      })()`,
+      sessionId
+    )
+  );
+}
+
+async function gridWindow(browser, targetId, windowState) {
+  const { windowId } = await browser.send('Browser.getWindowForTarget', { targetId });
+  await browser.send('Browser.setWindowBounds', { windowId, bounds: { windowState } });
+}
+
+// 经 MCP 工具提问。端口固定 47321，和网格页里写死的地址一致。
+async function runMcp(browser, sessionId, targetId, mcp) {
+  try {
+    await mcp.waitForClient(20000);
+  } catch {
+    await mcp.close();
+    throw new Error('扩展未连接。请在 cchrome 里重载扩展后再跑，网格页要包含 MCP 连接。');
+  }
+
+  let minimized = false;
+  if (MINIMIZE) {
+    await gridWindow(browser, targetId, 'minimized');
+    minimized = true;
+  }
+
+  try {
+    console.log(`\n=== MCP 提问: "${ASK}" ===`);
+    const first = await mcp.ask(ASK);
+    console.log(first.text);
+    if (first.isError) {
+      if (MINIMIZE && first.text.includes('不能最小化')) {
+        console.log('窗口冻结，服务端返回了最小化说明');
+        return [];
+      }
+      throw new Error(first.text);
+    }
+    const firstBody = JSON.parse(first.text);
+    for (const row of firstBody.answers ?? []) {
+      const ok = row.status === 'done' ? row.text.trim().length > 0 : Boolean(row.status);
+      console.log(`${ok ? '✅' : '⚠️ '} ${(row.site ?? '').padEnd(10)} ${row.status ?? ''} ${(row.text ?? '').slice(0, 40)}`);
+    }
+    if (MINIMIZE) {
+      const timedOut = (firstBody.answers ?? []).filter((row) => row.status === 'timeout');
+      if (!timedOut.length) console.log('未能制造冻结');
+      else if (timedOut.some((row) => !row.error?.includes('不能最小化'))) {
+        throw new Error('timeout 的 error 里没有「不能最小化」');
+      }
+      return firstBody.answers;
+    }
+
+    await sleep(3000);
+    const before = await sessionUrls(browser, sessionId);
+    const second = await mcp.ask(ASK);
+    if (second.isError) throw new Error(second.text);
+    await sleep(3000);
+    const after = await sessionUrls(browser, sessionId);
+    const same = JSON.stringify(before) === JSON.stringify(after);
+    console.log(`${same ? '✅' : '⚠️ '} 第二问后会话地址${same ? '未变' : '变了'}`);
+    if (!same) {
+      console.log(`之前 ${JSON.stringify(before)}`);
+      console.log(`之后 ${JSON.stringify(after)}`);
+      throw new Error('第二问离开了原来的会话');
+    }
+    return firstBody.answers;
+  } finally {
+    if (minimized) await gridWindow(browser, targetId, 'normal').catch(() => {});
+    await mcp.close();
+  }
+}
+
 async function main() {
   mkdirSync(path.join(REPO, '.probe'), { recursive: true });
   const release = acquireLock();
   process.on('exit', release);
+  // 先占住 47321，后面等面板加载的那二十秒里别的 MCP 进程抢不走这个端口。
+  let mcp = null;
+  if (MCP) {
+    if (!ASK) throw new Error('--mcp 需要 --ask=问题');
+    try {
+      mcp = await startMcp({ port: 47321, deadlineMs: 180000, stdio: false });
+    } catch (error) {
+      if (error?.code === 'EADDRINUSE') throw new Error('47321 已被占用。请先停掉正在运行的 multi-ai-chat。');
+      throw error;
+    }
+  }
   const extId = extensionId(REPO);
   const browser = await Cdp.connect(await browserWebSocket());
   console.log(`已连上 cchrome (127.0.0.1:${PORT})，扩展 ID: ${extId}`);
@@ -497,7 +591,9 @@ async function main() {
   }
 
   let askStatus = null;
-  if (ASK) {
+  if (MCP) {
+    askStatus = await runMcp(browser, sessionId, targetId, mcp);
+  } else if (ASK) {
     console.log(`\n=== ${SEND ? '提问' : '填词'}验证: "${ASK}" ===`);
     await browser.eval(`__multiAiAsk(${JSON.stringify(ASK)}, { send: ${SEND} })`, sessionId);
     // 开了深度思考的站点 16 秒经常还没出正文，等久一点，验证结果才稳定。

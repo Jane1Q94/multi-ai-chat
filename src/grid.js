@@ -250,7 +250,14 @@ function ask(text, { send = true, files = [] } = {}) {
     renderSessions();
   }
   for (const panel of panels.values()) {
-    panel.beginAsk(id, () => panel.setStatus('无响应，面板可能还没加载完', 'error'), REPLY_TIMEOUT);
+    panel.beginAsk(
+      id,
+      () => {
+        panel.setStatus('无响应，面板可能还没加载完', 'error');
+        agentOnReplyTimeout(panel);
+      },
+      REPLY_TIMEOUT
+    );
     panel.post({ channel: CHANNEL, type: 'ask', id, siteId: panel.site.id, text, send, files });
   }
   return id;
@@ -266,9 +273,153 @@ window.addEventListener('message', (event) => {
   // 消息根本进不来，不会把登录页当成对话记住。
   if (data.type === 'url' || data.type === 'ready') panel.noteUrl(data.url);
   if (data.type === 'ready') panel.applyReady(data);
-  if (data.type === 'ask-result') panel.applyResult(data);
-  if (data.type === 'answer') panel.applyAnswer(data);
+  if (data.type === 'ask-result') {
+    panel.applyResult(data);
+    agentOnResult(panel, data);
+  }
+  if (data.type === 'answer') {
+    panel.applyAnswer(data);
+    agentOnAnswer(panel, data);
+  }
 });
+
+// ---- Agent ----
+// 网格页主动连本机 MCP 服务。服务端在 180 秒时仍没收到 result 会自行补 timeout，
+// 这里提前 1 秒把已经拿到的正文送回去；页面被冻结时这个定时器也不会跑，就由服务端兜底。
+const AGENT_URL = 'ws://127.0.0.1:47321';
+const AGENT_DEADLINE_MS = 179000;
+// 页面停 1.5 秒就报一次「不再变化」，但联网搜索的站点（豆包）会先出一行搜索词，
+// 停好几秒才开始写正文。停顿后再等这么久仍没有新内容，才算这一家答完。
+const AGENT_QUIET_MS = 8000;
+const REPLY_ERRORS = {
+  'no-input': '没找到输入框，可能未登录',
+  'fill-failed': '填词失败，选择器可能不对了',
+  'no-adapter': '该站点没有适配器',
+  'not-submitted': '已填入，但没提交成功，打开原始页面回车'
+};
+
+let agentSocket = null;
+let agentAsk = null;
+
+function agentSend(payload) {
+  if (agentSocket?.readyState === WebSocket.OPEN) agentSocket.send(JSON.stringify(payload));
+}
+
+function agentRow(row) {
+  const item = { site: row.name, status: row.status, text: row.text };
+  if (row.html) item.html = row.html;
+  if (row.status !== 'done') item.error = row.error;
+  return item;
+}
+
+function agentAnswers() {
+  return [...agentAsk.rows.values()].filter((row) => row.status).map(agentRow);
+}
+
+function agentFinish() {
+  if (!agentAsk) return;
+  const current = agentAsk;
+  agentAsk = null;
+  clearTimeout(current.timer);
+  for (const row of current.rows.values()) clearTimeout(row.quiet);
+  agentSend({ type: 'result', id: current.id, answers: [...current.rows.values()].map(agentRow) });
+}
+
+function agentSettle(siteId, status, text, error = '') {
+  const row = agentAsk?.rows.get(siteId);
+  if (!row || row.status) return;
+  row.status = status;
+  row.text = text;
+  if (error) row.error = error;
+  agentSend({ type: 'update', id: agentAsk.id, answers: agentAnswers() });
+  if ([...agentAsk.rows.values()].every((item) => item.status)) agentFinish();
+}
+
+function agentOnReplyTimeout(panel) {
+  const row = agentAsk?.rows.get(panel.site.id);
+  if (!row || row.status || row.text.trim()) return;
+  agentSettle(panel.site.id, 'not-submitted', '', '无响应');
+}
+
+function agentOnResult(panel, data) {
+  const row = agentAsk?.rows.get(panel.site.id);
+  if (!agentAsk || data.id !== agentAsk.localId || !row || row.status) return;
+  if (data.ok && data.sent) return;
+  if (data.reason === 'no-input') {
+    agentSettle(panel.site.id, 'no-input', row.text, REPLY_ERRORS['no-input']);
+    return;
+  }
+  const reason = data.reason ?? 'not-submitted';
+  agentSettle(panel.site.id, 'not-submitted', row.text, REPLY_ERRORS[reason] ?? reason);
+}
+
+function agentOnAnswer(panel, data) {
+  const row = agentAsk?.rows.get(panel.site.id);
+  if (!row || row.status) return;
+  const text = (data.text ?? '').trim();
+  if (!text) return;
+  if (text !== row.text) {
+    clearTimeout(row.quiet);
+    row.quiet = null;
+  }
+  row.text = text;
+  if (data.html) row.html = data.html;
+  if (data.streaming !== false || row.quiet) return;
+  const siteId = panel.site.id;
+  row.quiet = setTimeout(() => {
+    row.quiet = null;
+    agentSettle(siteId, 'done', row.text);
+  }, AGENT_QUIET_MS);
+}
+
+function handleAgentAsk(message) {
+  if (agentAsk || message?.type !== 'ask') return;
+  const names = [...panels.values()].map((panel) => panel.site.name);
+  agentSend({ type: 'begin', id: message.id, sites: names });
+  if (!names.length) return;
+
+  agentAsk = {
+    id: message.id,
+    localId: null,
+    rows: new Map(),
+    timer: null
+  };
+  for (const panel of panels.values()) {
+    agentAsk.rows.set(panel.site.id, { name: panel.site.name, status: null, text: '', html: '', error: '', quiet: null });
+  }
+  agentAsk.timer = setTimeout(() => {
+    if (!agentAsk) return;
+    for (const row of agentAsk.rows.values()) {
+      if (row.status) continue;
+      row.status = 'timeout';
+      row.error = '网格窗口要开着，且不能最小化';
+    }
+    agentFinish();
+  }, AGENT_DEADLINE_MS);
+  agentAsk.localId = ask(message.text);
+}
+
+function connectAgent() {
+  let retry = null;
+  const connect = () => {
+    const socket = new WebSocket(AGENT_URL);
+    agentSocket = socket;
+    socket.addEventListener('error', () => {});
+    socket.addEventListener('message', (event) => {
+      try {
+        handleAgentAsk(JSON.parse(event.data));
+      } catch {
+        // 服务端帧损坏时丢掉这一条，连接保持。
+      }
+    });
+    socket.addEventListener('close', () => {
+      if (agentSocket === socket) agentSocket = null;
+      clearTimeout(retry);
+      retry = setTimeout(connect, 1000);
+    });
+  };
+  connect();
+}
 
 composer.addEventListener('submit', (event) => {
   event.preventDefault();
@@ -349,6 +500,7 @@ async function main() {
     onRemove: removePanel,
     onToggle: (site, on) => (on ? addPanel(site) : removePanel(site))
   });
+  connectAgent();
 }
 
 main();
