@@ -2,7 +2,7 @@
 // 一样写成挂全局的普通脚本（content_scripts 不支持 ES module，但 module 侧可以 import 它）。
 //
 // 存的是 disabled 而不是 enabled：以后往 sites.js 里加预置站点时默认是开着的。
-const DEFAULTS = { disabled: [], custom: [] };
+const DEFAULTS = { disabled: [], custom: [], privacyChoice: null, chatgptCookieAccess: false };
 
 async function read() {
   return chrome.storage.sync.get(DEFAULTS);

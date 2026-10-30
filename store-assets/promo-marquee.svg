@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="560" viewBox="0 0 1400 560">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#28231e"/><stop offset="1" stop-color="#594637"/></linearGradient>
+    <filter id="shadow"><feDropShadow dx="0" dy="14" stdDeviation="18" flood-opacity=".3"/></filter>
+  </defs>
+  <rect width="1400" height="560" fill="url(#bg)"/>
+  <circle cx="130" cy="70" r="260" fill="#f0a45c" opacity=".16"/>
+  <circle cx="1310" cy="520" r="340" fill="#6fa68b" opacity=".17"/>
+  <g transform="translate(516 96)" filter="url(#shadow)">
+    <rect width="368" height="368" rx="88" fill="#f8f5ef"/>
+    <rect x="48" y="48" width="120" height="120" rx="34" fill="#f0a45c"/>
+    <rect x="200" y="48" width="120" height="120" rx="34" fill="#6fa68b"/>
+    <rect x="48" y="200" width="120" height="120" rx="34" fill="#748fb5"/>
+    <rect x="200" y="200" width="120" height="120" rx="34" fill="#e7dfd3"/>
+    <g stroke="#28231e" stroke-width="14" stroke-linecap="round">
+      <path d="M82 108h52M108 82v52M234 108h52M260 82v52M82 260h52M108 234v52M234 260h52M260 234v52"/>
+    </g>
+  </g>
+  <g fill="none" stroke="#f8f5ef" stroke-width="3" opacity=".45">
+    <path d="M90 440h330M980 120h330"/>
+    <circle cx="78" cy="440" r="7" fill="#f8f5ef"/><circle cx="1322" cy="120" r="7" fill="#f8f5ef"/>
+  </g>
+</svg>

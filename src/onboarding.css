@@ -1,0 +1,108 @@
+:root {
+  color: #25211d;
+  background: #f2f0eb;
+  font: 16px/1.65 'Avenir Next', 'Helvetica Neue', 'PingFang SC', sans-serif;
+}
+
+body {
+  margin: 0;
+  padding: 48px 20px;
+}
+
+main {
+  width: min(720px, 100%);
+  margin: 0 auto;
+  padding: 44px 52px;
+  border: 1px solid #e1dcd3;
+  border-radius: 20px;
+  background: #fff;
+  box-shadow: 0 18px 60px #382b1f14;
+}
+
+.eyebrow {
+  margin: 22px 0 4px;
+  color: #7c6b5c;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+h1 {
+  margin: 0;
+  font: 600 36px/1.22 'Iowan Old Style', Palatino, 'Songti SC', serif;
+}
+
+h2 {
+  margin: 30px 0 10px;
+  font-size: 17px;
+}
+
+.lead,
+section p,
+li,
+.policy {
+  color: #5f5851;
+}
+
+ul {
+  padding-left: 22px;
+}
+
+.choice {
+  padding: 2px 20px 20px;
+  border: 1px solid #ddd5ca;
+  border-radius: 14px;
+  background: #f8f6f2;
+}
+
+.choice label {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-weight: 650;
+}
+
+.choice input {
+  width: 18px;
+  height: 18px;
+  margin-top: 4px;
+}
+
+a {
+  color: #2f5d8a;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 24px;
+}
+
+button {
+  padding: 11px 18px;
+  border: 0;
+  border-radius: 9px;
+  color: #fff;
+  background: #25211d;
+  font: 650 15px/1.4 inherit;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.55;
+}
+
+#error {
+  color: #ad4432;
+  text-align: right;
+}
+
+@media (max-width: 640px) {
+  main {
+    padding: 30px 24px;
+  }
+
+  h1 {
+    font-size: 29px;
+  }
+}

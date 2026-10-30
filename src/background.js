@@ -2,6 +2,7 @@ import './sites.js';
 import './store.js';
 
 const GRID_URL = chrome.runtime.getURL('src/grid.html');
+const ONBOARDING_URL = chrome.runtime.getURL('src/onboarding.html');
 const CONTENT_JS = ['src/sites.js', 'src/store.js', 'src/sanitize.js', 'src/content/inject.js'];
 
 // 这些站点用 CSP frame-ancestors / X-Frame-Options 禁止被嵌入。规则只绑定 grid 标签页的
@@ -54,13 +55,18 @@ async function cookieRule(id, tabId, host) {
   };
 }
 
-async function cookieRules(ids, tabId) {
+async function cookieRules(ids, tabId, enabled) {
+  if (!enabled) return [];
   const rules = await Promise.all(LAX_AUTH_HOSTS.map((host, index) => cookieRule(ids[index], tabId, host)));
   return rules.filter(Boolean);
 }
 
 async function armTab(tabId) {
   if (tabId === undefined) throw new Error('拿不到标签页 id');
+  const [{ chatgptCookieAccess }, cookiePermission] = await Promise.all([
+    globalThis.MultiAiStore.read(),
+    chrome.permissions.contains({ permissions: ['cookies'] })
+  ]);
   const existing = await chrome.declarativeNetRequest.getSessionRules();
   const mine = existing.filter((rule) => ownedBy(rule, tabId));
   const used = new Set(existing.filter((rule) => !ownedBy(rule, tabId)).map((rule) => rule.id));
@@ -84,12 +90,17 @@ async function armTab(tabId) {
           resourceTypes: ['sub_frame']
         }
       },
-      ...(await cookieRules(cookieIds, tabId))
+      ...(await cookieRules(cookieIds, tabId, chatgptCookieAccess && cookiePermission))
     ]
   });
 }
 
 chrome.action.onClicked.addListener(async () => {
+  const { privacyChoice } = await globalThis.MultiAiStore.read();
+  if (!privacyChoice) {
+    await chrome.tabs.create({ url: ONBOARDING_URL });
+    return;
+  }
   const [existing] = await chrome.tabs.query({ url: GRID_URL });
   if (existing) {
     await chrome.tabs.update(existing.id, { active: true });
@@ -139,8 +150,13 @@ async function ensureGridWindow() {
   });
 }
 
-function boot() {
+async function boot({ reason } = {}) {
   syncCustomSites();
+  const { privacyChoice } = await globalThis.MultiAiStore.read();
+  if (!privacyChoice) {
+    if (reason === 'install') await chrome.tabs.create({ url: ONBOARDING_URL });
+    return;
+  }
   ensureGridWindow();
 }
 
@@ -151,7 +167,11 @@ const HANDLERS = {
   // grid 页面在挂载 iframe 之前会先来要一次授权，避免规则还没生效就发出子框架请求。
   ARM_TAB: (message, sender) => armTab(message.tabId ?? sender.tab?.id),
   REGISTER_SITE: (message) => registerSite(message.site),
-  UNREGISTER_SITE: (message) => unregisterSite(message.siteId)
+  UNREGISTER_SITE: (message) => unregisterSite(message.siteId),
+  PRIVACY_UPDATED: async () => {
+    const tabs = await chrome.tabs.query({ url: `${GRID_URL}*` });
+    await Promise.all(tabs.map((tab) => armTab(tab.id)));
+  }
 };
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -190,7 +210,7 @@ async function refreshCookieRules() {
 }
 
 let refreshTimer = null;
-chrome.cookies.onChanged.addListener(({ cookie }) => {
+chrome.cookies?.onChanged?.addListener(({ cookie }) => {
   if (!LAX_AUTH_HOSTS.some((host) => cookie.domain.endsWith(host))) return;
   clearTimeout(refreshTimer);
   refreshTimer = setTimeout(refreshCookieRules, 1000);

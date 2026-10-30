@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="440" height="280" viewBox="0 0 440 280">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#28231e"/>
+      <stop offset="1" stop-color="#46382d"/>
+    </linearGradient>
+    <filter id="shadow"><feDropShadow dx="0" dy="8" stdDeviation="10" flood-opacity=".25"/></filter>
+  </defs>
+  <rect width="440" height="280" fill="url(#bg)"/>
+  <circle cx="60" cy="42" r="92" fill="#f0a45c" opacity=".17"/>
+  <circle cx="410" cy="258" r="130" fill="#6fa68b" opacity=".18"/>
+  <g transform="translate(151 65)" filter="url(#shadow)">
+    <rect width="138" height="138" rx="34" fill="#f8f5ef"/>
+    <rect x="18" y="18" width="45" height="45" rx="13" fill="#f0a45c"/>
+    <rect x="75" y="18" width="45" height="45" rx="13" fill="#6fa68b"/>
+    <rect x="18" y="75" width="45" height="45" rx="13" fill="#748fb5"/>
+    <rect x="75" y="75" width="45" height="45" rx="13" fill="#e7dfd3"/>
+    <g stroke="#28231e" stroke-width="5" stroke-linecap="round">
+      <path d="M31 40h19M40.5 31v19M88 40h19M97.5 31v19M31 97h19M40.5 88v19M88 97h19M97.5 88v19"/>
+    </g>
+  </g>
+  <g fill="none" stroke="#f8f5ef" stroke-width="2" opacity=".5">
+    <path d="M44 223h98M298 54h97"/>
+    <circle cx="38" cy="223" r="4" fill="#f8f5ef"/><circle cx="401" cy="54" r="4" fill="#f8f5ef"/>
+  </g>
+</svg>

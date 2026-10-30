@@ -1,17 +1,25 @@
 {
   "manifest_version": 3,
-  "name": "Multi AI Chat",
+  "name": "Multi AI Chat — 多模型回答对比",
   "version": "1.0.2",
-  "description": "并排嵌入豆包 / DeepSeek / ChatGPT / 千问 / Claude / Gemini，用于同一问题的多路对比。",
+  "description": "把同一个问题发送给多个 AI 网页版，并排比较回答。数据仅在浏览器与所选 AI 服务之间处理。",
+  "homepage_url": "https://github.com/Jane1Q94/multi-ai-chat",
+  "minimum_chrome_version": "120",
+  "icons": {
+    "16": "assets/icons/icon-16.png",
+    "32": "assets/icons/icon-32.png",
+    "48": "assets/icons/icon-48.png",
+    "128": "assets/icons/icon-128.png"
+  },
   "permissions": [
     "declarativeNetRequestWithHostAccess",
     "tabs",
     "storage",
     "scripting",
     "clipboardWrite",
-    "favicon",
-    "cookies"
+    "favicon"
   ],
+  "optional_permissions": ["cookies"],
   "optional_host_permissions": [
     "https://*/*",
     "http://*/*"
@@ -48,6 +56,10 @@
     }
   ],
   "action": {
-    "default_title": "打开 Multi AI Chat"
+    "default_title": "打开 Multi AI Chat",
+    "default_icon": {
+      "16": "assets/icons/icon-16.png",
+      "32": "assets/icons/icon-32.png"
+    }
   }
 }

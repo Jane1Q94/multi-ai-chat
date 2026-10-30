@@ -56,6 +56,19 @@ button {
   transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 
+.topbar-link {
+  padding: 5px 11px;
+  border-radius: var(--radius-sm);
+  color: var(--ink-soft);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.topbar-link:hover {
+  color: var(--ink);
+  background: #0000000a;
+}
+
 button:hover:not(:disabled) {
   background: #0000000a;
   color: var(--ink);

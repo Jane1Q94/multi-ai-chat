@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>开始使用 Multi AI Chat</title>
+    <link rel="stylesheet" href="onboarding.css" />
+  </head>
+  <body>
+    <main>
+      <img src="../assets/icons/icon-128.png" alt="" width="96" height="96" />
+      <p class="eyebrow">数据与隐私设置</p>
+      <h1>了解数据如何流动，并保存你的选择</h1>
+      <p class="lead">
+        Multi AI Chat 把你输入的问题发送给你启用的 AI 网站，并读取这些网站返回的回答，在本地并排展示。
+        开发者不运营中转服务器，也不会接收你的问题、回答或登录信息。
+      </p>
+
+      <section>
+        <h2>核心功能会处理什么</h2>
+        <ul>
+          <li><strong>问题与附件：</strong>只发送给你启用的 AI 网站。</li>
+          <li><strong>网页回答：</strong>从对应 AI 页面读取并在扩展内展示。</li>
+          <li><strong>会话地址和设置：</strong>保存在 Chrome 本地存储，用于恢复会话和站点选择。</li>
+          <li><strong>页面安全响应头：</strong>仅在扩展自己的网格标签页中移除阻止 iframe 的响应头，不影响普通浏览标签页。</li>
+        </ul>
+      </section>
+
+      <section class="choice">
+        <h2>可选：在 ChatGPT iframe 中使用你的登录状态</h2>
+        <p>
+          Chrome 默认不会把部分 ChatGPT Cookie 发送给跨站 iframe。开启后，扩展会读取你浏览器中
+          <code>chatgpt.com</code> 的认证 Cookie，并仅追加到扩展网格标签页发往 ChatGPT 的请求。
+          Cookie 不会写入扩展存储，也不会发送给开发者。关闭时 ChatGPT 仍可使用，但可能是匿名会话。
+        </p>
+        <label>
+          <input id="cookie-access" type="checkbox" />
+          <span>允许在扩展网格页中使用我的 ChatGPT 登录 Cookie</span>
+        </label>
+      </section>
+
+      <p class="policy">
+        继续即表示你已阅读本说明。详细规则见
+        <a href="https://github.com/Jane1Q94/multi-ai-chat/blob/codex/store-version/PRIVACY.md" target="_blank" rel="noreferrer">隐私政策</a>。
+      </p>
+      <div class="actions">
+        <button id="continue" type="button">保存选择并打开扩展</button>
+      </div>
+      <p id="error" role="alert"></p>
+    </main>
+    <script type="module" src="onboarding.js"></script>
+  </body>
+</html>
