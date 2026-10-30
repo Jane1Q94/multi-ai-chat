@@ -169,6 +169,7 @@ const HANDLERS = {
   REGISTER_SITE: (message) => registerSite(message.site),
   UNREGISTER_SITE: (message) => unregisterSite(message.siteId),
   PRIVACY_UPDATED: async () => {
+    await listenToCookieChanges();
     const tabs = await chrome.tabs.query({ url: `${GRID_URL}*` });
     await Promise.all(tabs.map((tab) => armTab(tab.id)));
   }
@@ -210,8 +211,20 @@ async function refreshCookieRules() {
 }
 
 let refreshTimer = null;
-chrome.cookies?.onChanged?.addListener(({ cookie }) => {
+let listeningToCookies = false;
+
+function onCookieChanged({ cookie }) {
   if (!LAX_AUTH_HOSTS.some((host) => cookie.domain.endsWith(host))) return;
   clearTimeout(refreshTimer);
   refreshTimer = setTimeout(refreshCookieRules, 1000);
-});
+}
+
+async function listenToCookieChanges() {
+  if (listeningToCookies) return;
+  const allowed = await chrome.permissions.contains({ permissions: ['cookies'] });
+  if (!allowed || !chrome.cookies?.onChanged) return;
+  chrome.cookies.onChanged.addListener(onCookieChanged);
+  listeningToCookies = true;
+}
+
+listenToCookieChanges();
