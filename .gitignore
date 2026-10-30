@@ -1,0 +1,6 @@
+.probe/
+dist/
+docs/
+log/
+minutes/
+.DS_Store

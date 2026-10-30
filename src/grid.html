@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>Multi AI Chat</title>
+    <link rel="stylesheet" href="grid.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>Multi AI Chat</h1>
+      <form class="composer" id="composer">
+        <div class="composer-box">
+          <textarea
+            id="prompt"
+            rows="1"
+            placeholder="同时问所有面板…（Enter 发送，Shift+Enter 换行，可直接粘贴图片）"
+            autofocus
+          ></textarea>
+          <ul class="attachments" id="attachments"></ul>
+        </div>
+        <button type="submit">同时提问</button>
+      </form>
+      <button type="button" id="toggle-sidebar" aria-expanded="false" aria-controls="sidebar">
+        <span class="caret" aria-hidden="true">▸</span>
+        <span id="active-session"></span>
+      </button>
+      <button type="button" id="new-session" title="所有面板都重开一轮新对话">新会话</button>
+      <button type="button" id="open-settings">站点</button>
+      <button type="button" id="reload-all">全部重载</button>
+    </header>
+    <p class="hint" id="hint">正在申请嵌入权限…</p>
+
+    <div class="stage">
+      <!-- 会话 = 一组「每家停在哪条对话上」的地址。切换会话就是把所有面板送去各自那条对话。
+           列表默认收起：常态是横向比六张卡片，要切换时才从顶栏「会话」按钮拉出来。 -->
+      <aside class="sidebar" id="sidebar" hidden>
+        <ul class="session-list" id="session-list"></ul>
+      </aside>
+      <main class="grid" id="grid"></main>
+    </div>
+
+    <!-- 各站点的 iframe 常驻在这里：站点得靠它真实运行，但平时不露面，
+         只在「原始页面」开关打开时定位到对应卡片上（不搬 DOM，搬了会重新加载）。 -->
+    <div class="workspace" id="workspace"></div>
+
+    <dialog id="settings">
+      <h2>站点</h2>
+      <ul class="site-list" id="site-list"></ul>
+
+      <h2>添加站点</h2>
+      <form class="add-site" id="add-site">
+        <label>名称<input name="name" placeholder="通义" /></label>
+        <label>地址<input name="url" placeholder="https://www.tongyi.com/" required /></label>
+        <label>
+          输入框选择器
+          <input name="input" placeholder='textarea, [contenteditable="true"]' required />
+        </label>
+        <label>
+          回答容器选择器
+          <input name="answer" placeholder=".markdown" />
+        </label>
+        <label>
+          发送按钮选择器（可选，逗号分隔）
+          <input name="send" placeholder='[aria-label="发送"]' />
+        </label>
+        <p class="form-hint">
+          发送按钮是主路径，填不准就退回到回车。回答容器留空的话，这一家只能用「原始页面」开关看。
+        </p>
+        <p class="form-error" id="add-error"></p>
+        <div class="form-actions">
+          <button type="button" id="close-settings">关闭</button>
+          <button type="submit">添加</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script type="module" src="grid.js"></script>
+  </body>
+</html>
