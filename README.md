@@ -50,27 +50,8 @@
 
 - **ChatGPT 在 iframe 里可能是匿名的**。它的登录 cookie 是 `SameSite=Lax`，浏览器按规范不会发给跨站 iframe。对策是只在本扩展这个标签页里，把被扣下的 cookie 用 `Cookie` 请求头补回去（见 `src/background.js` 的 `LAX_AUTH_HOSTS`），profile 里的 cookie 一个字都不改。但前提是浏览器里确实登录过 ChatGPT；否则 iframe 拿到的是匿名会话——能聊，但那条对话属于临时身份，之后用地址重新打开会被服务端拒掉、退回首页。再有别的站点出现同样症状，用 `--cookies` 勘查看它的会话 cookie 是不是 Lax，是就加进这个名单。
 - **Gemini 收不到图片**，它会回「请上传需要识别的图片」。原因不在选择器：Gemini 的上传功能被一个免责声明弹窗挡着（点输入框旁的「上传和工具」会看到「同意 / 取消」），没点过同意之前，合成的 paste 和 drop 都不会产生任何上传请求。先在「原始页面」里自己点一次同意，再试。其余五家都能正常读图（验证方式见下面的 `--image`）。
-- **站点改版会让选择器失效**，症状是卡片显示「没找到输入框」或者一直空着。改 `src/sites.js`，用下面的勘查脚本找新的选择器。
+- **站点改版会让选择器失效**，症状是卡片显示「没找到输入框」或者一直空着，需要更新 `src/sites.js` 中对应站点的选择器。
 - 只在 Chrome / Chromium（MV3）上验证过。
-
-## 开发与调试
-
-`tools/probe/run.mjs` 是配套的验证脚本，通过 CDP 连上一个开了调试端口的 Chrome，直接在真站点上跑端到端验证，不用手点。
-
-浏览器要用 `~/bin/cchrome` 启动。它固定调试端口和 `~/ChromeDebugProfile`，并在端口起来后装上这个未打包扩展。这台品牌版 Chrome 会忽略 `--load-extension`，所以不能只把目录写进启动参数。
-
-常用姿势：
-
-```sh
-node tools/probe/run.mjs                              # 看六家的加载状态和选择器命中情况
-node tools/probe/run.mjs --fresh --keep --ask="问题" --send   # 重载扩展，问一轮，核对六家的回答
-node tools/probe/run.mjs --editors                    # 列出候选编辑器和发送按钮，找选择器用
-node tools/probe/run.mjs --answers                    # 列出回答容器候选
-node tools/probe/run.mjs --net=chatgpt --reload=chatgpt  # 只重载一家，抓它的首屏请求和被拦的 cookie
-node tools/probe/run.mjs --on=claude --eval="location.href"  # 在指定 frame 里求值
-```
-
-默认会复用已经打开的面板标签页，不会新开对话污染你的聊天记录；改了扩展代码要加 `--fresh`。
 
 ## 打包
 
@@ -78,4 +59,4 @@ node tools/probe/run.mjs --on=claude --eval="location.href"  # 在指定 frame �
 sh tools/pack.sh
 ```
 
-产出 `dist/multi-ai-chat-<版本号>.zip`，只含运行时需要的 `manifest.json` 和 `src/`。调试脚本、截图、制品本身都不入库。
+产出 `dist/multi-ai-chat-<版本号>.zip`，只含运行时需要的 `manifest.json` 和 `src/`。构建脚本和制品本身都不入库。

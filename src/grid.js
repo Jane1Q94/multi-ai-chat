@@ -2,7 +2,6 @@ import './sites.js';
 import './store.js';
 import { mountSettings } from './settings.js';
 import { createPanel } from './panel.js';
-import { htmlToMarkdown } from './markdown.js';
 
 const CHANNEL = globalThis.MULTI_AI_CHANNEL;
 const store = globalThis.MultiAiStore;
@@ -254,7 +253,6 @@ function ask(text, { send = true, files = [] } = {}) {
       id,
       () => {
         panel.setStatus('无响应，面板可能还没加载完', 'error');
-        agentOnReplyTimeout(panel);
       },
       REPLY_TIMEOUT
     );
@@ -273,164 +271,9 @@ window.addEventListener('message', (event) => {
   // 消息根本进不来，不会把登录页当成对话记住。
   if (data.type === 'url' || data.type === 'ready') panel.noteUrl(data.url);
   if (data.type === 'ready') panel.applyReady(data);
-  if (data.type === 'ask-result') {
-    panel.applyResult(data);
-    agentOnResult(panel, data);
-  }
-  if (data.type === 'answer') {
-    panel.applyAnswer(data);
-    agentOnAnswer(panel, data);
-  }
+  if (data.type === 'ask-result') panel.applyResult(data);
+  if (data.type === 'answer') panel.applyAnswer(data);
 });
-
-// ---- Agent ----
-// 网格页主动连本机 MCP 服务。服务端在 180 秒时仍没收到 result 会自行补 timeout，
-// 这里提前 1 秒把已经拿到的正文送回去；页面被冻结时这个定时器也不会跑，就由服务端兜底。
-const AGENT_URL = 'ws://127.0.0.1:47321';
-const AGENT_DEADLINE_MS = 179000;
-// 卡片状态停 1.5 秒就会显示「已完成」，但联网搜索的站点会先出一行搜索词，停十几秒再写正文，
-// 状态又变回「回答中」。所以轮询卡片状态，「已完成（N 字）」原样保持这么久才算这一家答完。
-const AGENT_STABLE_MS = 15000;
-const AGENT_POLL_MS = 1000;
-const REPLY_ERRORS = {
-  'no-input': '没找到输入框，可能未登录',
-  'fill-failed': '填词失败，选择器可能不对了',
-  'no-adapter': '该站点没有适配器',
-  'not-submitted': '已填入，但没提交成功，打开原始页面回车'
-};
-
-let agentSocket = null;
-let agentAsk = null;
-
-function agentSend(payload) {
-  if (agentSocket?.readyState === WebSocket.OPEN) agentSocket.send(JSON.stringify(payload));
-}
-
-function agentRow(row) {
-  const item = { site: row.name, status: row.status, text: row.text };
-  if (row.html) item.html = row.html;
-  if (row.status !== 'done') item.error = row.error;
-  return item;
-}
-
-function agentAnswers() {
-  return [...agentAsk.rows.values()].filter((row) => row.status).map(agentRow);
-}
-
-function agentFinish() {
-  if (!agentAsk) return;
-  const current = agentAsk;
-  agentAsk = null;
-  clearTimeout(current.timer);
-  clearInterval(current.poll);
-  agentSend({ type: 'result', id: current.id, answers: [...current.rows.values()].map(agentRow) });
-}
-
-function agentSettle(siteId, status, text, error = '') {
-  const row = agentAsk?.rows.get(siteId);
-  if (!row || row.status) return;
-  row.status = status;
-  row.text = text;
-  if (error) row.error = error;
-  agentSend({ type: 'update', id: agentAsk.id, answers: agentAnswers() });
-  if ([...agentAsk.rows.values()].every((item) => item.status)) agentFinish();
-}
-
-function agentOnReplyTimeout(panel) {
-  const row = agentAsk?.rows.get(panel.site.id);
-  if (!row || row.status || row.text.trim()) return;
-  agentSettle(panel.site.id, 'not-submitted', '', '无响应');
-}
-
-function agentOnResult(panel, data) {
-  const row = agentAsk?.rows.get(panel.site.id);
-  if (!agentAsk || data.id !== agentAsk.localId || !row || row.status) return;
-  if (data.ok && data.sent) return;
-  if (data.reason === 'no-input') {
-    agentSettle(panel.site.id, 'no-input', row.text, REPLY_ERRORS['no-input']);
-    return;
-  }
-  const reason = data.reason ?? 'not-submitted';
-  agentSettle(panel.site.id, 'not-submitted', row.text, REPLY_ERRORS[reason] ?? reason);
-}
-
-function agentOnAnswer(panel, data) {
-  const row = agentAsk?.rows.get(panel.site.id);
-  if (!row || row.status) return;
-  const text = (data.text ?? '').trim();
-  if (!text) return;
-  row.text = text;
-  if (data.html) row.html = data.html;
-}
-
-function agentPoll() {
-  if (!agentAsk) return;
-  const now = Date.now();
-  for (const panel of panels.values()) {
-    const row = agentAsk?.rows.get(panel.site.id);
-    if (!row || row.status) continue;
-    const status = panel.statusText();
-    if (status !== row.seen) {
-      row.seen = status;
-      row.since = now;
-      continue;
-    }
-    if (status.startsWith('已完成') && row.text && now - row.since >= AGENT_STABLE_MS) {
-      agentSettle(panel.site.id, 'done', row.text);
-    }
-  }
-}
-
-function handleAgentAsk(message) {
-  if (agentAsk || message?.type !== 'ask') return;
-  const names = [...panels.values()].map((panel) => panel.site.name);
-  agentSend({ type: 'begin', id: message.id, sites: names });
-  if (!names.length) return;
-
-  agentAsk = {
-    id: message.id,
-    localId: null,
-    rows: new Map(),
-    timer: null,
-    poll: null
-  };
-  for (const panel of panels.values()) {
-    agentAsk.rows.set(panel.site.id, { name: panel.site.name, status: null, text: '', html: '', error: '', seen: null, since: 0 });
-  }
-  agentAsk.timer = setTimeout(() => {
-    if (!agentAsk) return;
-    for (const row of agentAsk.rows.values()) {
-      if (row.status) continue;
-      row.status = 'timeout';
-      row.error = '网格窗口要开着，且不能最小化';
-    }
-    agentFinish();
-  }, AGENT_DEADLINE_MS);
-  agentAsk.localId = ask(message.text);
-  agentAsk.poll = setInterval(agentPoll, AGENT_POLL_MS);
-}
-
-function connectAgent() {
-  let retry = null;
-  const connect = () => {
-    const socket = new WebSocket(AGENT_URL);
-    agentSocket = socket;
-    socket.addEventListener('error', () => {});
-    socket.addEventListener('message', (event) => {
-      try {
-        handleAgentAsk(JSON.parse(event.data));
-      } catch {
-        // 服务端帧损坏时丢掉这一条，连接保持。
-      }
-    });
-    socket.addEventListener('close', () => {
-      if (agentSocket === socket) agentSocket = null;
-      clearTimeout(retry);
-      retry = setTimeout(connect, 1000);
-    });
-  };
-  connect();
-}
 
 composer.addEventListener('submit', (event) => {
   event.preventDefault();
@@ -479,12 +322,6 @@ document.addEventListener('keydown', (event) => {
 
 window.addEventListener('resize', relayout);
 
-// tools/probe/run.mjs 用这两个钩子验证填词，并在失败时取回各面板回报的现场。
-globalThis.__multiAiAsk = ask;
-globalThis.__multiAiLast = () => Object.fromEntries([...panels].map(([id, panel]) => [id, panel.lastResult]));
-globalThis.__multiAiMarkdown = htmlToMarkdown;
-globalThis.__multiAiSessions = () => sessions;
-
 async function main() {
   const self = await chrome.tabs.getCurrent();
   const armed = await chrome.runtime.sendMessage({ type: 'ARM_TAB', tabId: self?.id });
@@ -511,7 +348,6 @@ async function main() {
     onRemove: removePanel,
     onToggle: (site, on) => (on ? addPanel(site) : removePanel(site))
   });
-  connectAgent();
 }
 
 main();
